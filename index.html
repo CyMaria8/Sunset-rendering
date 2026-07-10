@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sunset Sky Renderer</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="viewport-panel" aria-label="Sunset sky render">
+        <div class="scene-frame">
+          <canvas id="skyCanvas" width="960" height="615"></canvas>
+          <div class="render-title" id="renderTitle"></div>
+          <div class="time-lapse-strip" aria-label="Time-lapse status">
+            <span id="timeLapseStatus">Manual sky</span>
+            <span id="redBlueReadout">Red:blue --</span>
+          </div>
+        </div>
+      </section>
+
+      <aside class="controls" aria-label="Sky parameters">
+        <div class="panel-heading">
+          <p>Prague-inspired sunset renderer</p>
+          <h1>Camera sky view</h1>
+        </div>
+
+        <div class="tab-switcher" role="tablist" aria-label="Control sections">
+          <button id="tabRender" class="tab-button active" type="button" role="tab" aria-selected="true" aria-controls="renderPanel">Atmosphere</button>
+          <button id="tabTools" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="toolsPanel">Tools</button>
+        </div>
+
+        <div id="renderPanel" class="tab-panel active" role="tabpanel" aria-labelledby="tabRender">
+          <div class="control-grid">
+            <div class="control-group">
+              <label for="sunElevation">
+                <span>Sun elevation</span>
+                <output id="sunElevationValue"></output>
+              </label>
+              <input id="sunElevation" type="range" min="-3" max="8" value="1.7" step="0.1">
+            </div>
+
+            <div class="control-group">
+              <label for="sunAzimuth">
+                <span>Sun angle</span>
+                <output id="sunAzimuthValue"></output>
+              </label>
+              <input id="sunAzimuth" type="range" min="-45" max="45" value="0" step="1">
+            </div>
+
+            <div class="control-group">
+              <label for="aerosolDensity">
+                <span>Particle density</span>
+                <output id="aerosolDensityValue"></output>
+              </label>
+              <input id="aerosolDensity" type="range" min="0.05" max="1.35" value="0.5" step="0.01">
+            </div>
+
+            <div class="control-group">
+              <label for="particleSize">
+                <span>Particle size</span>
+                <output id="particleSizeValue"></output>
+              </label>
+              <input id="particleSize" type="range" min="0.05" max="1.2" value="0.3" step="0.01">
+            </div>
+
+            <div class="control-group">
+              <label for="horizonHeight">
+                <span>Horizon</span>
+                <output id="horizonHeightValue"></output>
+              </label>
+              <input id="horizonHeight" type="range" min="0.54" max="0.78" value="0.70" step="0.01">
+            </div>
+
+            <div class="control-group">
+              <label for="exposure">
+                <span>Exposure</span>
+                <output id="exposureValue"></output>
+              </label>
+              <input id="exposure" type="range" min="0.55" max="1.8" value="1.05" step="0.01">
+            </div>
+          </div>
+
+          <div class="control-group compact-select">
+            <label for="horizonScene">
+              <span>Horizon scene</span>
+            </label>
+            <select id="horizonScene">
+              <option value="plain">Empty horizon</option>
+              <option value="mountains">Mountain ridge silhouette</option>
+              <option value="forest">Single tree silhouette</option>
+              <option value="beach">Palm beach silhouette</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="toolsPanel" class="tab-panel" role="tabpanel" aria-labelledby="tabTools" hidden>
+          <div class="control-group time-lapse-controls">
+            <label>
+              <span>Sunset time-lapse</span>
+              <output id="timeLapseValue"></output>
+            </label>
+            <div class="timeline-track" aria-hidden="true">
+              <span id="timelineFill"></span>
+            </div>
+            <div class="button-row compact">
+              <button id="playSunset" type="button">Play sunset</button>
+              <button id="resetSunset" type="button">Reset</button>
+            </div>
+          </div>
+
+          <div class="control-group inverse-panel">
+            <label for="photoUpload">
+              <span>Inverse photo estimator</span>
+              <output id="inverseStatus">No photo</output>
+            </label>
+            <div class="upload-compact">
+              <input id="photoUpload" type="file" accept="image/*">
+              <button id="applyEstimate" type="button" disabled>Apply</button>
+            </div>
+            <div class="inverse-layout">
+              <div class="photo-guide">
+                <canvas id="photoPreview" width="640" height="360" aria-label="Uploaded sunset preview"></canvas>
+              </div>
+              <div class="guide-help" aria-label="Marker adjustment instructions">
+                <div><strong>Upper</strong><span>Clean upper sky, away from clouds and sun glare.</span></div>
+                <div><strong>Sun disk</strong><span>Center of the visible sun; this region is masked out.</span></div>
+                <div><strong>Horizon line</strong><span>Drag onto the real sky/ground boundary; the warm sky band above it is sampled automatically.</span></div>
+              </div>
+              <div class="estimate-grid" aria-label="Estimated atmosphere">
+                <div>
+                  <span>Solar zenith</span>
+                  <strong id="estimateZenith">--</strong>
+                </div>
+                <div>
+                  <span>AOD</span>
+                  <strong id="estimateAod">--</strong>
+                </div>
+                <div>
+                  <span>Particle radius</span>
+                  <strong id="estimateRadius">--</strong>
+                </div>
+                <div>
+                  <span>Sun angle</span>
+                  <strong id="estimateSunAngle">--</strong>
+                </div>
+                <div>
+                  <span>Horizon</span>
+                  <strong id="estimateHorizon">--</strong>
+                </div>
+                <div>
+                  <span>Confidence</span>
+                  <strong id="estimateConfidence">--</strong>
+                </div>
+              </div>
+            </div>
+            <div class="match-list" id="matchList" aria-label="Plausible atmosphere matches"></div>
+            <p class="inverse-note" id="inverseNote">
+              Upload a sunset photo to retrieve the closest plausible model settings.
+            </p>
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button id="matchReference" type="button">Match reference</button>
+          <button id="downloadImage" type="button">Download PNG</button>
+        </div>
+
+        <p class="model-note">
+          Uses the Prague Sky Model repo as a reference for side-facing sky rendering parameters, then applies a compact warm sunset approximation for this rectangular view.
+        </p>
+      </aside>
+    </main>
+
+    <script src="script.js"></script>
+  </body>
+</html>
