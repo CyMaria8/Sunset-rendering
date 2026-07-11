@@ -8,7 +8,8 @@ const controls = {
   particleSize: document.getElementById("particleSize"),
   horizonHeight: document.getElementById("horizonHeight"),
   horizonScene: document.getElementById("horizonScene"),
-  exposure: document.getElementById("exposure")
+  exposure: document.getElementById("exposure"),
+  ozoneAbsorption: document.getElementById("ozoneAbsorption")
 };
 
 const outputs = {
@@ -67,7 +68,7 @@ const timeLapse = {
   startTime: 0,
   duration: 18000,
   startElevation: 8,
-  endElevation: -3
+  endElevation: -8
 };
 
 const silhouetteAssets = {
@@ -118,14 +119,14 @@ function getParams() {
   return Object.fromEntries(
     Object.entries(controls).map(([key, input]) => [
       key,
-      input.tagName === "SELECT" ? input.value : Number(input.value)
+      input.tagName === "SELECT" ? input.value : input.type === "checkbox" ? input.checked : Number(input.value)
     ])
   );
 }
 
 function getParamSignature() {
   return Object.entries(controls)
-    .map(([key, input]) => `${key}:${input.value}`)
+    .map(([key, input]) => `${key}:${input.type === "checkbox" ? input.checked : input.value}`)
     .join("|");
 }
 
@@ -528,7 +529,7 @@ function guidedSunElevation() {
   // *fine* accuracy. It must never be allowed to flip which side of the horizon the sun
   // is on -- the marker positions are a direct visual read of that, not a soft hint.
   const elevation = raw >= 0 ? Math.max(adjusted, 0) : Math.min(adjusted, 0);
-  return clamp(elevation, -2.5, 7.5);
+  return clamp(elevation, -7.5, 7.5);
 }
 
 // Keeps the guide marker as a soft tie-breaker rather than letting it override a clearly
@@ -584,6 +585,8 @@ function estimateAtmosphere(photoSignature) {
   // sun is on, independent of whatever FOV happens to convert it to degrees.
   const aboveHorizonGap = aboveHorizonFraction();
   const elevations = Array.from(new Set([
+    -7.5,
+    -6,
     -2.5,
     -1,
     0,
@@ -592,8 +595,8 @@ function estimateAtmosphere(photoSignature) {
     5,
     7.5,
     Number(expectedElevation.toFixed(1)),
-    Number(clamp(expectedElevation - 1.2, -2.5, 7.5).toFixed(1)),
-    Number(clamp(expectedElevation + 1.2, -2.5, 7.5).toFixed(1))
+    Number(clamp(expectedElevation - 1.2, -7.5, 7.5).toFixed(1)),
+    Number(clamp(expectedElevation + 1.2, -7.5, 7.5).toFixed(1))
   ]))
     .filter((elevation) => Math.abs(elevation - expectedElevation) <= ELEVATION_SEARCH_RADIUS)
     // Hard guard, independent of the offset/radius above: a marker placement that
@@ -621,7 +624,8 @@ function estimateAtmosphere(photoSignature) {
           particleSize,
           horizonHeight: modelHorizon,
           horizonScene: controls.horizonScene.value,
-          exposure: 1.05
+          exposure: 1.05,
+          ozoneAbsorption: controls.ozoneAbsorption.checked
         };
         const modelSignature = buildModelSignature(params);
         const positionPenalty = Math.abs(sunElevation - expectedElevation) * ELEVATION_PENALTY_WEIGHT;
@@ -1008,11 +1012,28 @@ function skyRadiance(viewDir, sunDir, yNorm, params) {
   const airMass = 1 / Math.max(0.08, viewDir[1] + 0.11);
   const opticalDepth = Math.exp(-density * airMass * 0.18);
 
-  const zenithColor = mixColor([112, 139, 169], [150, 121, 102], sunLow);
+  // Civil/nautical twilight (sun below the horizon): ozone's Chappuis band eats the
+  // red/orange out of the long slant path while Rayleigh scattering still supplies blue,
+  // producing a pink-to-violet band that has nothing to do with the sunset glow itself.
+  // It ramps in once the sun dips below the horizon and is strongest around -6 deg. Keyed
+  // to the raw view-direction altitude (0 at the horizon, ~0.42 at the top of the frame)
+  // rather than the compressed `altitude` blend variable above, which only spans a narrow
+  // 0.5-0.71 range here and would otherwise wash the same tint across the whole sky.
+  // Toggleable so the original warm-only sunset model stays available.
+  const twilightDepth = params.ozoneAbsorption ? smoothstep(2, -6, params.sunElevation) : 0;
+  const skyAltitude = clamp(viewDir[1] / 0.42);
+  const duskZenith = [72, 63, 112];
+  const duskBand = [173, 96, 132];
+
+  let zenithColor = mixColor([112, 139, 169], [150, 121, 102], sunLow);
+  zenithColor = mixColor(zenithColor, duskZenith, twilightDepth * smoothstep(0.15, 0.6, skyAltitude) * 0.9);
   const horizonColor = mixColor([244, 180, 93], [225, 136, 34], clamp(density * 0.75));
   const emberColor = [198, 72, 12];
   const baseT = smoothstep(0.04, 0.9, altitude);
   let color = mixColor(horizonColor, zenithColor, baseT);
+
+  const duskBandShape = Math.exp(-Math.pow((skyAltitude - 0.22) / 0.16, 2));
+  color = mixColor(color, duskBand, twilightDepth * duskBandShape * 0.6);
 
   const forwardGlow = clamp(miePhase * density * 0.028, 0, 0.9);
   const solarBloom = Math.exp((mu - 1) * 900) * (0.42 + density * 0.76);
@@ -1284,6 +1305,142 @@ function getInkCrop(asset, threshold, maxYFraction = 1, inkDivisor = 72) {
   return asset[cacheKey];
 }
 
+let citySkylineCache = null;
+
+function cityBuildingLayer(rand, width, height, layer) {
+  const buildings = [];
+  let x = Math.floor(width * (layer.startJitter * rand()));
+  while (x < width) {
+    const buildingWidth = Math.floor(width * (layer.minW + rand() * layer.varW));
+    const tall = rand() < layer.tallChance;
+    const buildingHeight = Math.floor(
+      height * (tall ? layer.tallH + rand() * 0.12 : layer.baseH + rand() * 0.08) * layer.heightScale
+    );
+    const shapeRoll = rand();
+    const shape = tall
+      ? (shapeRoll < 0.3 ? "crown" : shapeRoll < 0.48 ? "dome" : shapeRoll < 0.68 ? "setback" : "flat")
+      : (shapeRoll < 0.18 ? "setback" : "flat");
+    buildings.push({
+      x0: x,
+      x1: Math.min(width, x + buildingWidth),
+      h: buildingHeight,
+      shape,
+      spire: shape === "crown" || (tall && rand() < 0.4),
+      windowPhase: Math.floor(rand() * 4),
+      id: buildings.length
+    });
+    x += buildingWidth + Math.floor(width * rand() * layer.gap);
+  }
+  return buildings;
+}
+
+function citySkyline(width, height) {
+  if (citySkylineCache && citySkylineCache.width === width && citySkylineCache.height === height) {
+    return citySkylineCache;
+  }
+
+  // Deterministic LCG so the skyline is stable across renders and slider drags.
+  let seed = 1234567;
+  const rand = () => {
+    seed = (seed * 48271) % 2147483647;
+    return seed / 2147483647;
+  };
+
+  citySkylineCache = {
+    width,
+    height,
+    // Back layer: taller, hazier towers peeking over the front row for depth.
+    back: cityBuildingLayer(rand, width, height, {
+      startJitter: 0.05, minW: 0.03, varW: 0.05, tallChance: 0.42,
+      tallH: 0.18, baseH: 0.08, heightScale: 1.15, gap: 0.03
+    }),
+    front: cityBuildingLayer(rand, width, height, {
+      startJitter: 0.01, minW: 0.025, varW: 0.055, tallChance: 0.22,
+      tallH: 0.14, baseH: 0.05, heightScale: 1, gap: 0.006
+    })
+  };
+  return citySkylineCache;
+}
+
+// Vertical inset of the roofline at horizontal position t (0..1 across the building),
+// so towers read as domes, tapered crowns, or stepped setbacks instead of flat slabs.
+function cityTopOffset(building, t) {
+  if (building.shape === "dome") {
+    const arc = 1 - Math.sqrt(Math.max(0, 1 - Math.pow(t * 2 - 1, 2)));
+    return building.h * 0.3 * arc;
+  }
+  if (building.shape === "crown") {
+    return building.h * 0.32 * Math.abs(t * 2 - 1);
+  }
+  if (building.shape === "setback") {
+    return t < 0.18 || t > 0.82 ? building.h * 0.24 : 0;
+  }
+  return 0;
+}
+
+function drawCityLayer(data, width, horizonY, buildings, color, options) {
+  buildings.forEach((building) => {
+    const span = Math.max(1, building.x1 - building.x0 - 1);
+    const baseTop = Math.max(0, horizonY - building.h);
+
+    for (let x = building.x0; x < building.x1; x++) {
+      const t = (x - building.x0) / span;
+      const top = Math.min(horizonY, baseTop + Math.round(cityTopOffset(building, t)));
+      for (let y = top; y < horizonY; y++) {
+        // Punch-through window bands: skip pixels so the sky shows through the facade,
+        // like a cut-paper skyline. Solid margins are kept near edges and the roofline.
+        if (options.punchWindows && y > top + 5 && y < horizonY - 3) {
+          const band = Math.floor((y - building.windowPhase) / 6);
+          const col = Math.floor((x - building.x0) / 4);
+          const hash = Math.abs(Math.sin(band * 91.7 + col * 47.3 + building.id * 13.1) * 43758.5453) % 1;
+          const inBandRow = (y - building.windowPhase) % 6 < 2;
+          const inColGap = (x - building.x0) % 4 === 3;
+          if (inBandRow && !inColGap && hash < 0.5 && t > 0.08 && t < 0.92) continue;
+        }
+        setPixel(data, width, x, y, color);
+      }
+    }
+
+    if (building.spire) {
+      const spireX = Math.floor((building.x0 + building.x1) / 2);
+      const spireTop = Math.max(0, baseTop - Math.floor(building.h * 0.45));
+      for (let y = spireTop; y < baseTop + 2; y++) {
+        setPixel(data, width, spireX, y, color);
+      }
+    }
+  });
+}
+
+function drawCityDuskLights(data, width, horizonY, buildings, duskLights) {
+  if (duskLights <= 0.02) return;
+  buildings.forEach((building) => {
+    const top = Math.max(0, horizonY - building.h);
+    for (let wy = top + 6 + building.windowPhase; wy < horizonY - 3; wy += 6) {
+      for (let wx = building.x0 + 2; wx < building.x1 - 1; wx += 4) {
+        const hash = Math.abs(Math.sin(wx * 12.9898 + wy * 78.233) * 43758.5453) % 1;
+        if (hash < 0.24 * duskLights) {
+          const glow = 0.55 + hash * 1.5;
+          setPixel(data, width, wx, wy, [225 * glow, 176 * glow, 92 * glow]);
+          if (wx + 1 < building.x1 - 1) {
+            setPixel(data, width, wx + 1, wy, [188 * glow, 140 * glow, 70 * glow]);
+          }
+        }
+      }
+    }
+  });
+}
+
+function drawCity(data, width, height, horizonY, params) {
+  drawPlainGround(data, width, height, horizonY);
+  const { back, front } = citySkyline(width, height);
+  // Window lights fade in as the sun drops, matching how a real skyline lights up at dusk.
+  const duskLights = smoothstep(3, -2, params.sunElevation);
+
+  drawCityLayer(data, width, horizonY, back, [30, 27, 36], { punchWindows: false });
+  drawCityLayer(data, width, horizonY, front, [8, 8, 11], { punchWindows: true });
+  drawCityDuskLights(data, width, horizonY, front, duskLights);
+}
+
 function drawForeground(data, width, height, params, sunDir) {
   const horizonY = Math.floor(params.horizonHeight * (height - 1));
 
@@ -1295,6 +1452,8 @@ function drawForeground(data, width, height, params, sunDir) {
   } else if (params.horizonScene === "forest") {
     drawPlainGround(data, width, height, horizonY);
     drawForest(data, width, height, horizonY);
+  } else if (params.horizonScene === "city") {
+    drawCity(data, width, height, horizonY, params);
   } else {
     drawPlainGround(data, width, height, horizonY);
   }
@@ -1434,14 +1593,17 @@ function scheduleGuideEstimate() {
 }
 
 function moveGuide(target, x, y) {
+  // The sun disk may sit below the horizon line: for twilight photos the sun has already
+  // set, and dragging the marker under the line is how the user says so. The allowance
+  // (~0.3 of the frame) covers the estimator's -7.5 deg floor at typical FOVs.
   if (target === "horizonLine") {
     const guide = canvasToGuide(x, y);
     photoState.horizonY = clamp(guide.y, 0.34, 0.92);
-    photoState.guides.sunDisk.y = Math.min(photoState.guides.sunDisk.y, photoState.horizonY - 0.02);
+    photoState.guides.sunDisk.y = Math.min(photoState.guides.sunDisk.y, Math.min(photoState.horizonY + 0.3, 0.96));
     photoState.guides.upper.y = Math.min(photoState.guides.upper.y, photoState.horizonY - 0.12);
   } else if (photoState.guides[target]) {
     const guide = canvasToGuide(x, y);
-    const maxY = target === "upper" ? photoState.horizonY - 0.12 : photoState.horizonY - 0.02;
+    const maxY = target === "upper" ? photoState.horizonY - 0.12 : Math.min(photoState.horizonY + 0.3, 0.96);
     photoState.guides[target].x = guide.x;
     photoState.guides[target].y = clamp(guide.y, 0.06, Math.max(0.08, maxY));
   }

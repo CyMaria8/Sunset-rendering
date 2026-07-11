@@ -37,7 +37,7 @@
                 <span>Sun elevation</span>
                 <output id="sunElevationValue"></output>
               </label>
-              <input id="sunElevation" type="range" min="-3" max="8" value="1.7" step="0.1">
+              <input id="sunElevation" type="range" min="-8" max="8" value="1.7" step="0.1">
             </div>
 
             <div class="control-group">
@@ -90,7 +90,16 @@
               <option value="mountains">Mountain ridge silhouette</option>
               <option value="forest">Single tree silhouette</option>
               <option value="beach">Palm beach silhouette</option>
+              <option value="city">City skyline silhouette</option>
             </select>
+          </div>
+
+          <div class="control-group compact-select ozone-toggle">
+            <label for="ozoneAbsorption">
+              <span>Ozone absorption</span>
+              <input id="ozoneAbsorption" type="checkbox">
+            </label>
+            <p class="toggle-hint">Adds the pink-violet twilight band once the sun drops below the horizon (Chappuis-band approximation). Off reproduces the original warm-only sunset model.</p>
           </div>
         </div>
 
@@ -124,7 +133,7 @@
               </div>
               <div class="guide-help" aria-label="Marker adjustment instructions">
                 <div><strong>Upper</strong><span>Clean upper sky, away from clouds and sun glare.</span></div>
-                <div><strong>Sun disk</strong><span>Center of the visible sun; this region is masked out.</span></div>
+                <div><strong>Sun disk</strong><span>Center of the visible sun; this region is masked out. If the sun has already set, drag it below the horizon line to where the glow is brightest.</span></div>
                 <div><strong>Horizon line</strong><span>Drag onto the real sky/ground boundary; the warm sky band above it is sampled automatically.</span></div>
               </div>
               <div class="estimate-grid" aria-label="Estimated atmosphere">
