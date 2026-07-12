@@ -1050,8 +1050,14 @@ function skyRadiance(viewDir, sunDir, yNorm, params) {
   color[1] -= band * density * 62;
   color[2] -= band * density * 45;
 
+  // Global darkening as the sun sinks: after sunset the whole sky loses illumination,
+  // fastest at the zenith while the horizon band keeps a residual glow, so the classic
+  // bright-arch-over-dark-sky twilight look emerges instead of a uniformly lit sky.
+  const duskT = smoothstep(0.5, -8, params.sunElevation);
+  const duskDim = 1 - duskT * (0.5 + 0.32 * smoothstep(0.08, 0.5, skyAltitude));
+
   const contrast = 1 + density * 0.28 + particle * 0.12;
-  return color.map((channel) => Math.pow(clamp((channel / 255) * params.exposure * (1 - extinction * 0.18)), 1 / contrast) * 255);
+  return color.map((channel) => Math.pow(clamp((channel / 255) * params.exposure * duskDim * (1 - extinction * 0.18)), 1 / contrast) * 255);
 }
 
 function drawSun(data, width, height, params, sunDir) {
