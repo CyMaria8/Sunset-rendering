@@ -1202,9 +1202,14 @@ function drawSilhouetteOverlay(ctx, width, height, params) {
 
   const mask = maskCtx.getImageData(0, 0, drawW, drawH);
   const pixels = mask.data;
-  const out = ctx.getImageData(drawX, Math.max(0, drawY), drawW, Math.min(drawH, height - Math.max(0, drawY)));
-  const outPixels = out.data;
+  // When the overlay's top is clipped by the canvas (drawY < 0), the readable region must
+  // shrink by the clipped amount too -- otherwise rows past the mask's bottom would sample
+  // undefined pixels, whose NaN luminance painted a solid black rectangle below the scene.
   const yOffset = Math.max(0, -drawY);
+  const outHeight = Math.min(drawH - yOffset, height - Math.max(0, drawY));
+  if (outHeight <= 0) return;
+  const out = ctx.getImageData(drawX, Math.max(0, drawY), drawW, outHeight);
+  const outPixels = out.data;
   const fillFromY = placement.fillBelow ? new Array(drawW).fill(drawH + 1) : null;
   const fillToBottomFromY = placement.fillBottomFrom ? new Array(drawW).fill(drawH + 1) : null;
 
@@ -1713,7 +1718,8 @@ applyEstimateButton.addEventListener("click", () => {
   controls.aerosolDensity.value = params.aerosolDensity.toFixed(2);
   controls.particleSize.value = params.particleSize.toFixed(2);
   controls.horizonHeight.value = params.horizonHeight.toFixed(2);
-  controls.horizonScene.value = params.horizonScene || controls.horizonScene.value;
+  // The estimator recovers atmosphere parameters only -- it knows nothing about the
+  // scenery in the photo, so Apply must not override the user's chosen horizon scene.
   controls.exposure.value = "1.05";
   queueRender();
 });
